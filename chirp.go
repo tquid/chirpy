@@ -2,9 +2,10 @@ package main
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
 	"strings"
+
+	"codeberg.org/tquid/chirpy/models"
 )
 
 func cleaner(profane string) string {
@@ -30,10 +31,7 @@ func cleaner(profane string) string {
 	return strings.Join(clean, " ")
 }
 
-func handlerValidateChirp(w http.ResponseWriter, r *http.Request) {
-	type Chirp struct {
-		Body string `json:"body"`
-	}
+func handlerPostChirp(w http.ResponseWriter, r *http.Request) {
 
 	type ValidateResponse struct {
 		CleanedBody string `json:"cleaned_body"`
@@ -41,7 +39,7 @@ func handlerValidateChirp(w http.ResponseWriter, r *http.Request) {
 
 	decoder := json.NewDecoder(r.Body)
 	defer r.Body.Close()
-	chirp := Chirp{}
+	chirp := models.Chirp{}
 	err := decoder.Decode(&chirp)
 	if err != nil {
 		respondWithError(w, 400, "bad request")
@@ -55,6 +53,5 @@ func handlerValidateChirp(w http.ResponseWriter, r *http.Request) {
 	vr := ValidateResponse{
 		CleanedBody: cleaner(chirp.Body),
 	}
-	log.Printf("Responding with %v", vr)
 	respondWithJSON(w, 200, vr)
 }
