@@ -1,3 +1,3 @@
-module codeberg.org/tquid/chirpy
+module github.com/tquid/chirpy
 
 go 1.23.0
