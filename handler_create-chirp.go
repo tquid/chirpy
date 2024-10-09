@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/google/uuid"
+	"github.com/tquid/chirpy/internal/auth"
 )
 
 func getCleanedBody(body string, badWords map[string]struct{}) string {
@@ -22,15 +22,25 @@ func getCleanedBody(body string, badWords map[string]struct{}) string {
 
 func (cfg *apiConfig) handlerCreateChirp(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
-		UserID uuid.UUID `json:"user_id"`
-		Body   string    `json:"body"`
+		Body string `json:"body"`
 	}
 
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "unauthorized", err)
+		return
+	}
+	id, err := auth.ValidateJWT(token, cfg.jwtSecret)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "unauthorized", err)
+		return
+	}
 	decoder := json.NewDecoder(r.Body)
 	params := parameters{}
-	err := decoder.Decode(&params)
+	err = decoder.Decode(&params)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't decode parameters", err)
+		return
 	}
 	badWords := map[string]struct{}{
 		"kerfuffle": {},
@@ -40,9 +50,10 @@ func (cfg *apiConfig) handlerCreateChirp(w http.ResponseWriter, r *http.Request)
 	cleaned := getCleanedBody(params.Body, badWords)
 	params.Body = cleaned
 
-	chirp, err := cfg.chirpStore.CreateChirp(r.Context(), params.Body, params.UserID)
+	chirp, err := cfg.chirpStore.CreateChirp(r.Context(), params.Body, id)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "unable to create chirp", err)
+		return
 	}
 	respondWithJSON(w, 201, chirp)
 }

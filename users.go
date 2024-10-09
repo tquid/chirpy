@@ -2,25 +2,65 @@ package main
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/tquid/chirpy/internal/auth"
 	"github.com/tquid/chirpy/internal/database"
 
 	"github.com/google/uuid"
 )
 
+var (
+	ErrInvalidCredentials = errors.New("invalid email or password")
+	ErrUserNotFound       = errors.New("user not found")
+)
+
+type Duration struct {
+	time.Duration
+}
+
+func (d *Duration) UnmarshalJSON(b []byte) error {
+	var seconds int
+	if err := json.Unmarshal(b, &seconds); err != nil {
+		return fmt.Errorf("duration should be an integer representing seconds: %w", err)
+	}
+	d.Duration = time.Duration(seconds) * time.Second
+	return nil
+}
+
+type LoginParams struct {
+	Email            string   `json:"email"`
+	Password         string   `json:"password"`
+	ExpiresInSeconds Duration `json:"expires_in_seconds"`
+}
+
 type UserStore interface {
-	CreateUser(ctx context.Context, email string) (*User, error)
+	CreateUser(ctx context.Context, email string, password string) (*User, error)
 	DeleteAllUsers(ctx context.Context) (int64, error)
+	Login(ctx context.Context, jwtSecret string, loginParams LoginParams) (*User, error)
+	GetUserByEmail(ctx context.Context, email string) (*User, error)
 }
 
 type PgUserStore struct {
 	db *database.Queries
 }
 
-func (p *PgUserStore) CreateUser(ctx context.Context, email string) (*User, error) {
-	user, err := p.db.CreateUser(ctx, email)
+func (p *PgUserStore) CreateUser(ctx context.Context, email string, password string) (*User, error) {
+	hashedPassword, err := auth.HashPassword(password)
+	if err != nil {
+		return nil, fmt.Errorf("can't create user: %w", err)
+	}
+
+	params := database.CreateUserParams{
+		Email:          email,
+		HashedPassword: hashedPassword,
+	}
+
+	user, err := p.db.CreateUser(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create user: %w", err)
 	}
@@ -40,9 +80,51 @@ func (p *PgUserStore) DeleteAllUsers(ctx context.Context) (int64, error) {
 	return rows, nil
 }
 
+func (p *PgUserStore) GetUserByEmail(ctx context.Context, email string) (*User, error) {
+	user, err := p.db.GetUserByEmail(ctx, email)
+	if err != nil {
+		return nil, fmt.Errorf("unable to get user: %w", err)
+	}
+	return &User{
+		ID:        user.ID,
+		CreatedAt: user.CreatedAt,
+		UpdatedAt: user.UpdatedAt,
+		Email:     user.Email,
+	}, nil
+}
+
+func (p *PgUserStore) Login(ctx context.Context, jwtSecret string, params LoginParams) (*User, error) {
+	if params.ExpiresInSeconds.Duration == 0 || params.ExpiresInSeconds.Duration > 3600*time.Second {
+		params.ExpiresInSeconds.Duration = 3600 * time.Second
+	}
+	user, err := p.db.GetUserByEmail(ctx, params.Email)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("%w: %v", ErrUserNotFound, err)
+		}
+		return nil, fmt.Errorf("database error: %w", err)
+	}
+	err = auth.CheckPasswordHash(params.Password, user.HashedPassword)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidCredentials, err)
+	}
+	token, err := auth.MakeJWT(user.ID, jwtSecret, params.ExpiresInSeconds.Duration)
+	if err != nil {
+		return nil, fmt.Errorf("can't make JWT token: %w", err)
+	}
+	return &User{
+		ID:        user.ID,
+		CreatedAt: user.CreatedAt,
+		UpdatedAt: user.UpdatedAt,
+		Email:     user.Email,
+		Token:     token,
+	}, nil
+}
+
 type User struct {
 	ID        uuid.UUID `json:"id"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 	Email     string    `json:"email"`
+	Token     string    `json:"token"`
 }
