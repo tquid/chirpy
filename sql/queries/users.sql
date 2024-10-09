@@ -7,3 +7,6 @@ VALUES (
     $1
 )
 RETURNING *;
+
+-- name: DeleteAllUsers :execrows
+DELETE FROM users;
