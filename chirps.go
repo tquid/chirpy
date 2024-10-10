@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -21,10 +22,20 @@ type ChirpStore interface {
 	CreateChirp(context.Context, string, uuid.UUID) (*Chirp, error)
 	GetChirps(context.Context) ([]*Chirp, error)
 	GetChirpById(context.Context, uuid.UUID) (*Chirp, error)
+	DeleteChirp(context.Context, uuid.UUID) error
+}
+
+type ChirpStoreError struct {
+	Operation string
+	Err       error
 }
 
 type PgChirpStore struct {
 	db *database.Queries
+}
+
+func (cse *ChirpStoreError) Error() string {
+	return fmt.Sprintf("%s: %v", cse.Operation, cse.Err)
 }
 
 func (p *PgChirpStore) CreateChirp(ctx context.Context, body string, userID uuid.UUID) (*Chirp, error) {
@@ -66,7 +77,10 @@ func (p *PgChirpStore) GetChirps(ctx context.Context) ([]*Chirp, error) {
 func (p *PgChirpStore) GetChirpById(ctx context.Context, id uuid.UUID) (*Chirp, error) {
 	DBChirp, err := p.db.GetChirpById(ctx, id)
 	if err != nil {
-		return nil, fmt.Errorf("unable to get chirp %s: %w", id, err)
+		if err == sql.ErrNoRows {
+			return nil, &NotFoundError{Resource: "chirp", ID: id.String()}
+		}
+		return nil, &DatabaseError{Operation: "GetChirpById", Err: err}
 	}
 	return &Chirp{
 		ID:        DBChirp.ID,
@@ -75,4 +89,15 @@ func (p *PgChirpStore) GetChirpById(ctx context.Context, id uuid.UUID) (*Chirp, 
 		Body:      DBChirp.Body,
 		UserID:    DBChirp.UserID,
 	}, nil
+}
+
+func (p *PgChirpStore) DeleteChirp(ctx context.Context, id uuid.UUID) error {
+	err := p.db.DeleteChirp(ctx, id)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return &NotFoundError{Resource: "chirp", ID: id.String()}
+		}
+		return &DatabaseError{Operation: "DeleteChirp", Err: err}
+	}
+	return nil
 }

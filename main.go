@@ -19,6 +19,7 @@ type apiConfig struct {
 	userStore      UserStore
 	chirpStore     ChirpStore
 	jwtSecret      string
+	polkaKey       string
 }
 
 const jwtExpireSeconds = 3600
@@ -28,6 +29,7 @@ func main() {
 	dbURL := os.Getenv("DB_URL")
 	jwtSecret := os.Getenv("JWT_SECRET")
 	platform := os.Getenv("PLATFORM")
+	polkaKey := os.Getenv("POLKA_KEY")
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		log.Fatalf("unable to open connection to %s: %v", dbURL, err)
@@ -48,6 +50,7 @@ func main() {
 		userStore:      pgUserStore,
 		chirpStore:     pgChirpStore,
 		jwtSecret:      jwtSecret,
+		polkaKey:       polkaKey,
 	}
 
 	mux := http.NewServeMux()
@@ -58,11 +61,13 @@ func main() {
 	mux.HandleFunc("POST /api/chirps", apiCfg.handlerCreateChirp)
 	mux.HandleFunc("GET /api/chirps", apiCfg.handlerGetChirps)
 	mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.handlerGetChirpById)
+	mux.HandleFunc("DELETE /api/chirps/{chirpID}", apiCfg.handlerDeleteChirp)
 	mux.HandleFunc("POST /api/users", apiCfg.handlerCreateUser)
 	mux.HandleFunc("POST /api/login", apiCfg.handlerLogin)
 	mux.HandleFunc("POST /api/refresh", apiCfg.handlerRefresh)
 	mux.HandleFunc("POST /api/revoke", apiCfg.handlerRevokeRefreshToken)
 	mux.HandleFunc("PUT /api/users", apiCfg.handlerUpdateEmailPassword)
+	mux.HandleFunc("POST /api/polka/webhooks", apiCfg.handlerPolkaWebhook)
 
 	mux.HandleFunc("POST /admin/reset", apiCfg.handlerReset)
 	mux.HandleFunc("GET /admin/metrics", apiCfg.handlerMetrics)

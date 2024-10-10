@@ -16,7 +16,6 @@ import (
 
 var (
 	ErrInvalidCredentials = errors.New("invalid email or password")
-	ErrUserNotFound       = errors.New("user not found")
 )
 
 type Duration struct {
@@ -45,6 +44,7 @@ type UserStore interface {
 	GetUserIDFromValidRefreshToken(ctx context.Context, token string) (uuid.UUID, error)
 	RevokeRefreshToken(ctx context.Context, token string) error
 	UpdateLoginCredentials(ctx context.Context, userID uuid.UUID, loginParams LoginParams) (*User, error)
+	GrantChirpyRed(ctx context.Context, userID uuid.UUID) error
 }
 
 type PgUserStore struct {
@@ -56,6 +56,7 @@ type User struct {
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 	Email        string    `json:"email"`
+	IsChirpyRed  bool      `json:"is_chirpy_red"`
 	Token        string    `json:"token,omitempty"`
 	RefreshToken string    `json:"refresh_token,omitempty"`
 }
@@ -76,10 +77,11 @@ func (p *PgUserStore) CreateUser(ctx context.Context, email string, password str
 		return nil, fmt.Errorf("unable to create user: %w", err)
 	}
 	return &User{
-		ID:        user.ID,
-		CreatedAt: user.CreatedAt,
-		UpdatedAt: user.UpdatedAt,
-		Email:     user.Email,
+		ID:          user.ID,
+		CreatedAt:   user.CreatedAt,
+		UpdatedAt:   user.UpdatedAt,
+		Email:       user.Email,
+		IsChirpyRed: user.IsChirpyRed,
 	}, nil
 }
 
@@ -97,10 +99,11 @@ func (p *PgUserStore) GetUserByEmail(ctx context.Context, email string) (*User, 
 		return nil, fmt.Errorf("unable to get user: %w", err)
 	}
 	return &User{
-		ID:        user.ID,
-		CreatedAt: user.CreatedAt,
-		UpdatedAt: user.UpdatedAt,
-		Email:     user.Email,
+		ID:          user.ID,
+		CreatedAt:   user.CreatedAt,
+		UpdatedAt:   user.UpdatedAt,
+		Email:       user.Email,
+		IsChirpyRed: user.IsChirpyRed,
 	}, nil
 }
 
@@ -108,7 +111,7 @@ func (p *PgUserStore) Login(ctx context.Context, jwtSecret string, params LoginP
 	user, err := p.db.GetUserByEmail(ctx, params.Email)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("%w: %v", ErrUserNotFound, err)
+			return nil, &NotFoundError{Resource: "user", ID: params.Email}
 		}
 		return nil, fmt.Errorf("database error: %w", err)
 	}
@@ -138,6 +141,7 @@ func (p *PgUserStore) Login(ctx context.Context, jwtSecret string, params LoginP
 		CreatedAt:    user.CreatedAt,
 		UpdatedAt:    user.UpdatedAt,
 		Email:        user.Email,
+		IsChirpyRed:  user.IsChirpyRed,
 		Token:        token,
 		RefreshToken: refresh_token,
 	}, nil
@@ -159,9 +163,10 @@ func (p *PgUserStore) UpdateLoginCredentials(ctx context.Context, userID uuid.UU
 		return nil, fmt.Errorf("updating db failed: %w", err)
 	}
 	return &User{
-		ID:        user.ID,
-		CreatedAt: user.CreatedAt,
-		UpdatedAt: user.UpdatedAt,
-		Email:     user.Email,
+		ID:          user.ID,
+		CreatedAt:   user.CreatedAt,
+		UpdatedAt:   user.UpdatedAt,
+		Email:       user.Email,
+		IsChirpyRed: user.IsChirpyRed,
 	}, nil
 }
