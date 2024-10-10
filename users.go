@@ -33,9 +33,8 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 }
 
 type LoginParams struct {
-	Email            string   `json:"email"`
-	Password         string   `json:"password"`
-	ExpiresInSeconds Duration `json:"expires_in_seconds"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
 }
 
 type UserStore interface {
@@ -43,10 +42,21 @@ type UserStore interface {
 	DeleteAllUsers(ctx context.Context) (int64, error)
 	Login(ctx context.Context, jwtSecret string, loginParams LoginParams) (*User, error)
 	GetUserByEmail(ctx context.Context, email string) (*User, error)
+	GetUserIDFromValidRefreshToken(ctx context.Context, token string) (uuid.UUID, error)
+	RevokeRefreshToken(ctx context.Context, token string) error
 }
 
 type PgUserStore struct {
 	db *database.Queries
+}
+
+type User struct {
+	ID           uuid.UUID `json:"id"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	Email        string    `json:"email"`
+	Token        string    `json:"token"`
+	RefreshToken string    `json:"refresh_token"`
 }
 
 func (p *PgUserStore) CreateUser(ctx context.Context, email string, password string) (*User, error) {
@@ -94,9 +104,6 @@ func (p *PgUserStore) GetUserByEmail(ctx context.Context, email string) (*User, 
 }
 
 func (p *PgUserStore) Login(ctx context.Context, jwtSecret string, params LoginParams) (*User, error) {
-	if params.ExpiresInSeconds.Duration == 0 || params.ExpiresInSeconds.Duration > 3600*time.Second {
-		params.ExpiresInSeconds.Duration = 3600 * time.Second
-	}
 	user, err := p.db.GetUserByEmail(ctx, params.Email)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -108,23 +115,29 @@ func (p *PgUserStore) Login(ctx context.Context, jwtSecret string, params LoginP
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidCredentials, err)
 	}
-	token, err := auth.MakeJWT(user.ID, jwtSecret, params.ExpiresInSeconds.Duration)
+	refresh_token, err := auth.MakeRefreshToken()
+	refreshTokenParams := database.CreateRefreshTokenParams{
+		Token:     refresh_token,
+		UserID:    user.ID,
+		ExpiresAt: time.Now().UTC().Add(60 * 24 * time.Hour),
+	}
+	if err != nil {
+		return nil, fmt.Errorf("can't make refresh token: %w", err)
+	}
+	err = p.db.CreateRefreshToken(ctx, refreshTokenParams)
+	if err != nil {
+		return nil, fmt.Errorf("adding refresh token to db failed: %w", err)
+	}
+	token, err := auth.MakeJWT(user.ID, jwtSecret, jwtExpireSeconds*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("can't make JWT token: %w", err)
 	}
 	return &User{
-		ID:        user.ID,
-		CreatedAt: user.CreatedAt,
-		UpdatedAt: user.UpdatedAt,
-		Email:     user.Email,
-		Token:     token,
+		ID:           user.ID,
+		CreatedAt:    user.CreatedAt,
+		UpdatedAt:    user.UpdatedAt,
+		Email:        user.Email,
+		Token:        token,
+		RefreshToken: refresh_token,
 	}, nil
-}
-
-type User struct {
-	ID        uuid.UUID `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Email     string    `json:"email"`
-	Token     string    `json:"token"`
 }
