@@ -44,6 +44,7 @@ type UserStore interface {
 	GetUserByEmail(ctx context.Context, email string) (*User, error)
 	GetUserIDFromValidRefreshToken(ctx context.Context, token string) (uuid.UUID, error)
 	RevokeRefreshToken(ctx context.Context, token string) error
+	UpdateLoginCredentials(ctx context.Context, userID uuid.UUID, loginParams LoginParams) (*User, error)
 }
 
 type PgUserStore struct {
@@ -55,8 +56,8 @@ type User struct {
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 	Email        string    `json:"email"`
-	Token        string    `json:"token"`
-	RefreshToken string    `json:"refresh_token"`
+	Token        string    `json:"token,omitempty"`
+	RefreshToken string    `json:"refresh_token,omitempty"`
 }
 
 func (p *PgUserStore) CreateUser(ctx context.Context, email string, password string) (*User, error) {
@@ -139,5 +140,28 @@ func (p *PgUserStore) Login(ctx context.Context, jwtSecret string, params LoginP
 		Email:        user.Email,
 		Token:        token,
 		RefreshToken: refresh_token,
+	}, nil
+}
+
+func (p *PgUserStore) UpdateLoginCredentials(ctx context.Context, userID uuid.UUID, params LoginParams) (*User, error) {
+	hashedPassword, err := auth.HashPassword(params.Password)
+	if err != nil {
+		return nil, fmt.Errorf("password hashing failed: %w", err)
+	}
+	dbParams := database.UpdateLoginCredentialsParams{
+		Email:          params.Email,
+		ID:             userID,
+		HashedPassword: hashedPassword,
+	}
+
+	user, err := p.db.UpdateLoginCredentials(ctx, dbParams)
+	if err != nil {
+		return nil, fmt.Errorf("updating db failed: %w", err)
+	}
+	return &User{
+		ID:        user.ID,
+		CreatedAt: user.CreatedAt,
+		UpdatedAt: user.UpdatedAt,
+		Email:     user.Email,
 	}, nil
 }
