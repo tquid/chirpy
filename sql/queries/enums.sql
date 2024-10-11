@@ -1,0 +1,1 @@
+CREATE TYPE sort_direction AS ENUM ('ASC', 'DESC');

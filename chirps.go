@@ -20,8 +20,8 @@ type Chirp struct {
 
 type ChirpStore interface {
 	CreateChirp(context.Context, string, uuid.UUID) (*Chirp, error)
-	GetChirps(context.Context) ([]*Chirp, error)
-	GetChirpsByUserId(context.Context, uuid.UUID) ([]*Chirp, error)
+	GetChirps(context.Context, SortDirection) ([]*Chirp, error)
+	GetChirpsByUserId(context.Context, uuid.UUID, SortDirection) ([]*Chirp, error)
 	GetChirpById(context.Context, uuid.UUID) (*Chirp, error)
 	DeleteChirp(context.Context, uuid.UUID) error
 }
@@ -37,6 +37,13 @@ type PgChirpStore struct {
 
 func (cse *ChirpStoreError) Error() string {
 	return fmt.Sprintf("%s: %v", cse.Operation, cse.Err)
+}
+
+func GetSortOrder(key string) string {
+	if key == "desc" {
+		return "DESC"
+	}
+	return "asc"
 }
 
 func (p *PgChirpStore) CreateChirp(ctx context.Context, body string, userID uuid.UUID) (*Chirp, error) {
@@ -57,8 +64,14 @@ func (p *PgChirpStore) CreateChirp(ctx context.Context, body string, userID uuid
 	}, nil
 }
 
-func (p *PgChirpStore) GetChirps(ctx context.Context) ([]*Chirp, error) {
-	DBchirps, err := p.db.GetChirps(ctx)
+func (p *PgChirpStore) GetChirps(ctx context.Context, sort SortDirection) ([]*Chirp, error) {
+	var dbFunc func(context.Context) ([]database.Chirp, error)
+	if sort == SortDesc {
+		dbFunc = p.db.GetChirpsDesc
+	} else {
+		dbFunc = p.db.GetChirps
+	}
+	DBchirps, err := dbFunc(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to get chirps: %w", err)
 	}
@@ -75,8 +88,14 @@ func (p *PgChirpStore) GetChirps(ctx context.Context) ([]*Chirp, error) {
 	return chirps, nil
 }
 
-func (p *PgChirpStore) GetChirpsByUserId(ctx context.Context, userID uuid.UUID) ([]*Chirp, error) {
-	DBchirps, err := p.db.GetChirpsByUserId(ctx, userID)
+func (p *PgChirpStore) GetChirpsByUserId(ctx context.Context, userID uuid.UUID, sort SortDirection) ([]*Chirp, error) {
+	var dbFunc func(context.Context, uuid.UUID) ([]database.Chirp, error)
+	if sort == SortDesc {
+		dbFunc = p.db.GetChirpsByUserIdDesc
+	} else {
+		dbFunc = p.db.GetChirpsByUserId
+	}
+	DBchirps, err := dbFunc(ctx, userID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, &NotFoundError{Resource: "chirps by author", ID: userID.String()}

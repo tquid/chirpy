@@ -22,6 +22,13 @@ type apiConfig struct {
 	polkaKey       string
 }
 
+type SortDirection string
+
+const (
+	SortAsc  SortDirection = "ASC"
+	SortDesc SortDirection = "DESC"
+)
+
 const jwtExpireSeconds = 3600
 
 func main() {
