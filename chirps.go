@@ -21,6 +21,7 @@ type Chirp struct {
 type ChirpStore interface {
 	CreateChirp(context.Context, string, uuid.UUID) (*Chirp, error)
 	GetChirps(context.Context) ([]*Chirp, error)
+	GetChirpsByUserId(context.Context, uuid.UUID) ([]*Chirp, error)
 	GetChirpById(context.Context, uuid.UUID) (*Chirp, error)
 	DeleteChirp(context.Context, uuid.UUID) error
 }
@@ -60,6 +61,27 @@ func (p *PgChirpStore) GetChirps(ctx context.Context) ([]*Chirp, error) {
 	DBchirps, err := p.db.GetChirps(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to get chirps: %w", err)
+	}
+	var chirps []*Chirp
+	for _, chirp := range DBchirps {
+		chirps = append(chirps, &Chirp{
+			ID:        chirp.ID,
+			CreatedAt: chirp.CreatedAt,
+			UpdatedAt: chirp.UpdatedAt,
+			Body:      chirp.Body,
+			UserID:    chirp.UserID,
+		})
+	}
+	return chirps, nil
+}
+
+func (p *PgChirpStore) GetChirpsByUserId(ctx context.Context, userID uuid.UUID) ([]*Chirp, error) {
+	DBchirps, err := p.db.GetChirpsByUserId(ctx, userID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, &NotFoundError{Resource: "chirps by author", ID: userID.String()}
+		}
+		return nil, &DatabaseError{Operation: "GetChirpsByUserId", Err: err}
 	}
 	var chirps []*Chirp
 	for _, chirp := range DBchirps {
